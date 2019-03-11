@@ -1,0 +1,17 @@
+---
+# Source: artifactory/charts/postgresql/templates/pvc.yaml
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: artifactory-postgresql
+  labels:
+    app: artifactory-postgresql
+    chart: "postgresql-0.9.5"
+    release: "artifactory"
+    heritage: "Tiller"
+spec:
+  accessModes:
+    - "ReadWriteOnce"
+  resources:
+    requests:
+      storage: "50Gi"

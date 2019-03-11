@@ -1,0 +1,25 @@
+---
+# Source: artifactory/templates/artifactory-role.yaml
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    app: artifactory
+    chart: artifactory-7.12.4
+    component: artifactory
+    heritage: Tiller
+    release: artifactory
+  name: artifactory-artifactory
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - services
+  - endpoints
+  - pods
+  verbs:
+  - get
+  - watch
+  - list
+

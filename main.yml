@@ -1,0 +1,514 @@
+# Derived from config
+---
+# Source: artifactory/templates/artifactory-binarystore.yaml
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: artifactory-artifactory-bs
+  labels:
+    app: artifactory
+    chart: artifactory-7.12.4
+    heritage: Tiller
+    release: artifactory
+data:
+  binarystore.xml: |-
+    <!-- File system replication -->
+    <config version="v1">
+        <chain template="file-system"/>
+    </config>
+ 
+---
+---
+# Source: artifactory/templates/artifactory-role.yaml
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    app: artifactory
+    chart: artifactory-7.12.4
+    component: artifactory
+    heritage: Tiller
+    release: artifactory
+  name: artifactory-artifactory
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - services
+  - endpoints
+  - pods
+  verbs:
+  - get
+  - watch
+  - list
+
+ 
+---
+---
+# Source: artifactory/templates/artifactory-rolebinding.yaml
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    app: artifactory
+    chart: artifactory-7.12.4
+    component: artifactory
+    heritage: Tiller
+    release: artifactory
+  name: artifactory-artifactory
+subjects:
+- kind: ServiceAccount
+  name: artifactory-artifactory
+roleRef:
+  kind: Role
+  apiGroup: rbac.authorization.k8s.io
+  name: artifactory-artifactory
+ 
+---
+---
+# Source: artifactory/templates/artifactory-secrets.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: artifactory-artifactory
+  labels:
+    app: artifactory
+    chart: artifactory-7.12.4
+    heritage: Tiller
+    release: artifactory
+type: Opaque
+data:
+  master-key: "RkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRg=="
+ 
+---
+---
+# Source: artifactory/templates/artifactory-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: artifactory-artifactory
+  labels:
+    app: artifactory
+    chart: artifactory-7.12.4
+    component: artifactory
+    heritage: Tiller
+    release: artifactory
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8081
+    targetPort: 8081
+    protocol: TCP
+    name: artifactory
+  selector:
+    app: artifactory
+    component: "artifactory"
+    release: artifactory
+ 
+---
+---
+# Source: artifactory/templates/artifactory-serviceaccount.yaml
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app: artifactory
+    chart: artifactory-7.12.4
+    component: artifactory
+    heritage: Tiller
+    release: artifactory
+  name: artifactory-artifactory
+ 
+---
+---
+# Source: artifactory/templates/artifactory-statefulset.yaml
+apiVersion: apps/v1beta2
+kind: StatefulSet
+metadata:
+  name: artifactory-artifactory
+  labels:
+    app: artifactory
+    chart: artifactory-7.12.4
+    component: artifactory
+    heritage: Tiller
+    release: artifactory
+spec:
+  serviceName: artifactory
+  replicas: 1
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: artifactory
+      role: artifactory
+      release: artifactory
+  template:
+    metadata:
+      labels:
+        app: artifactory
+        role: artifactory
+        component: artifactory
+        release: artifactory
+      annotations:
+        checksum/binarystore: 75e1c3876ac5e146fe935806d3e6e5228f1ca5df8a115cd494006867ec28de13
+    spec:
+      serviceAccountName: artifactory-artifactory
+      terminationGracePeriodSeconds: 
+      securityContext:
+        runAsUser: 1030
+        fsGroup: 1030
+      initContainers:
+      - name: "remove-lost-found"
+        image: "alpine:3.8"
+        imagePullPolicy: IfNotPresent
+        command:
+        - 'sh'
+        - '-c'
+        - 'rm -rfv /var/opt/jfrog/artifactory/lost+found /var/opt/jfrog/artifactory/data/.lock'
+        volumeMounts:
+        - name: artifactory-volume
+          mountPath: "/var/opt/jfrog/artifactory"
+      - name: "wait-for-db"
+        image: "alpine:3.8"
+        command:
+        - 'sh'
+        - '-c'
+        - >
+          until nc -z -w 2 artifactory-postgresql 5432 && echo database ok; do
+            sleep 2;
+          done;
+      containers:
+      - name: artifactory
+        image: 'docker.bintray.io/jfrog/artifactory-oss:6.8.4'
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+        lifecycle:
+          postStart:
+            exec:
+              command:
+              - '/bin/sh'
+              - '-c'
+              - >
+        env:
+        - name: DB_TYPE
+          value: 'postgresql'
+        - name: DB_HOST
+          value: 'artifactory-postgresql'
+        - name: DB_PORT
+          value: '5432'
+        - name: DB_USER
+          value: "artifactory"
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: artifactory-postgresql
+              key: postgres-password
+        - name: ARTIFACTORY_MASTER_KEY
+          valueFrom:
+            secretKeyRef:
+              name: 'artifactory-artifactory'
+              key: master-key
+        - name: EXTRA_JAVA_OPTIONS
+          value: "
+            "
+        ports:
+        - containerPort: 8081
+        volumeMounts:
+        - name: artifactory-volume
+          mountPath: "/var/opt/jfrog/artifactory"
+        - name: binarystore-xml
+          mountPath: "/artifactory_extra_conf/binarystore.xml"
+          subPath: binarystore.xml
+        resources:
+          {}
+          
+      
+      volumes:
+      - name: binarystore-xml
+        configMap:
+          name: artifactory-artifactory-bs
+  volumeClaimTemplates:
+  - metadata:
+      name: artifactory-volume
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 20Gi
+ 
+---
+---
+# Source: artifactory/templates/nginx-deployment.yaml
+apiVersion: apps/v1beta2
+kind: Deployment
+metadata:
+  name: artifactory-artifactory-nginx
+  labels:
+    app: artifactory
+    chart: artifactory-7.12.4
+    heritage: Tiller
+    release: artifactory
+    component: nginx
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: artifactory
+      release: artifactory
+      component: nginx
+  template:
+    metadata:
+      labels:
+        app: artifactory
+        component: nginx
+        release: artifactory
+    spec:
+      serviceAccountName: artifactory-artifactory
+      initContainers:
+      - name: "wait-for-artifactory"
+        image: "alpine:3.8"
+        command:
+        - 'sh'
+        - '-c'
+        - >
+          until nc -z -w 2 artifactory-artifactory 8081 && echo artifactory ok; do
+            sleep 2;
+          done;
+      securityContext:
+        runAsUser: 104
+        fsGroup: 107
+      containers:
+      - name: nginx
+        image: 'docker.bintray.io/jfrog/nginx-artifactory-pro:6.8.4'
+        imagePullPolicy: IfNotPresent
+        lifecycle:
+          postStart:
+            exec:
+              command:
+              - '/bin/sh'
+              - '-c'
+              - >
+                if ! grep -q 'upstream' /etc/nginx/conf.d/artifactory.conf; then
+                sed -i -e 's,proxy_pass.*http://artifactory.*/artifactory/\(.*\);,proxy_pass       http://artifactory-artifactory:8081/artifactory/\1;,g' \
+                    -e 's,server_name .*,server_name ~(?<repo>.+)\\.artifactory-artifactory artifactory-artifactory;,g' \
+                    /etc/nginx/conf.d/artifactory.conf;
+                fi;
+                if [ -f /tmp/replicator-nginx.conf ]; then
+                cp -fv /tmp/replicator-nginx.conf /etc/nginx/conf.d/replicator-nginx.conf;
+                fi;
+                if [ -f /tmp/ssl/*.crt ]; then
+                rm -rf /var/opt/jfrog/nginx/ssl/example.*;
+                cp -fv /tmp/ssl/* /var/opt/jfrog/nginx/ssl;
+                fi;
+                until [ -f /etc/nginx/conf.d/artifactory.conf ]; do sleep 1; done;
+                sleep 5; nginx -s reload; touch /var/log/nginx/conf.done
+        env:
+        - name: ART_BASE_URL
+          value: 'http://artifactory-artifactory:8081/artifactory'
+        - name: SSL
+          value: "true"
+        - name: SKIP_AUTO_UPDATE_CONFIG
+          value: "false"
+        ports:
+        - containerPort: 80
+        - containerPort: 443
+        volumeMounts:
+        - name: nginx-volume
+          mountPath: "/var/opt/jfrog/nginx"
+        resources:
+          {}
+          
+        readinessProbe:
+          httpGet:
+            path: '/artifactory/webapp/#/login'
+            port: 80
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 10
+          failureThreshold: 10
+          successThreshold: 1
+        livenessProbe:
+          httpGet:
+            path: '/artifactory/webapp/#/login'
+            port: 80
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 10
+          failureThreshold: 10
+          successThreshold: 1
+      volumes:
+      - name: nginx-volume
+        emptyDir: {}
+ 
+---
+---
+# Source: artifactory/templates/nginx-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: artifactory-artifactory-nginx
+  labels:
+    app: artifactory
+    chart: artifactory-7.12.4
+    component: nginx
+    heritage: Tiller
+    release: artifactory
+spec:
+  type: LoadBalancer
+  
+  externalTrafficPolicy: Cluster
+  ports:
+  - port: 80
+    targetPort: 80
+    protocol: TCP
+    name: nginxhttp
+  - port: 443
+    targetPort: 443
+    protocol: TCP
+    name: artifactoryhttps
+  selector:
+    app: artifactory
+    component: nginx
+    release: artifactory
+ 
+---
+---
+# Source: artifactory/charts/postgresql/templates/deployment.yaml
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: artifactory-postgresql
+  labels:
+    app: artifactory-postgresql
+    chart: "postgresql-0.9.5"
+    release: "artifactory"
+    heritage: "Tiller"
+spec:
+  template:
+    metadata:
+      labels:
+        app: artifactory-postgresql
+    spec:
+      containers:
+      - name: artifactory-postgresql
+        image: "postgres:9.6.11"
+        imagePullPolicy: ""
+        args:
+          - -c
+          - 'max_connections=1500'
+        env:
+        - name: POSTGRES_USER
+          value: "artifactory"
+          # Required for pg_isready in the health probes.
+        - name: PGUSER
+          value: "artifactory"
+        - name: POSTGRES_DB
+          value: "artifactory"
+        - name: POSTGRES_INITDB_ARGS
+          value: ""
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: artifactory-postgresql
+              key: postgres-password
+        - name: POD_IP
+          valueFrom: { fieldRef: { fieldPath: status.podIP } }
+        ports:
+        - name: postgresql
+          containerPort: 5432
+        livenessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - exec pg_isready --host $POD_IP
+          initialDelaySeconds: 120
+          timeoutSeconds: 5
+          failureThreshold: 6
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - exec pg_isready --host $POD_IP
+          initialDelaySeconds: 5
+          timeoutSeconds: 3
+          periodSeconds: 5
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/postgresql/data/pgdata
+          subPath: postgresql-db
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: artifactory-postgresql
+ 
+---
+---
+# Source: artifactory/charts/postgresql/templates/pvc.yaml
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: artifactory-postgresql
+  labels:
+    app: artifactory-postgresql
+    chart: "postgresql-0.9.5"
+    release: "artifactory"
+    heritage: "Tiller"
+spec:
+  accessModes:
+    - "ReadWriteOnce"
+  resources:
+    requests:
+      storage: "50Gi" 
+---
+---
+# Source: artifactory/charts/postgresql/templates/secrets.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: artifactory-postgresql
+  labels:
+    app: artifactory-postgresql
+    chart: "postgresql-0.9.5"
+    release: "artifactory"
+    heritage: "Tiller"
+type: Opaque
+data:
+  
+  postgres-password: "TlFLeURJemp1MQ=="
+  
+ 
+---
+---
+# Source: artifactory/charts/postgresql/templates/svc.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: artifactory-postgresql
+  labels:
+    app: artifactory-postgresql
+    chart: "postgresql-0.9.5"
+    release: "artifactory"
+    heritage: "Tiller"
+spec:
+  type: ClusterIP
+  ports:
+  - name: postgresql
+    port: 5432
+    targetPort: postgresql
+  selector:
+    app: artifactory-postgresql
+ 
+---

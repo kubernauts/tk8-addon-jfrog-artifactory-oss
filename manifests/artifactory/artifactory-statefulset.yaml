@@ -1,0 +1,116 @@
+---
+# Source: artifactory/templates/artifactory-statefulset.yaml
+apiVersion: apps/v1beta2
+kind: StatefulSet
+metadata:
+  name: artifactory-artifactory
+  labels:
+    app: artifactory
+    chart: artifactory-7.12.4
+    component: artifactory
+    heritage: Tiller
+    release: artifactory
+spec:
+  serviceName: artifactory
+  replicas: 1
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: artifactory
+      role: artifactory
+      release: artifactory
+  template:
+    metadata:
+      labels:
+        app: artifactory
+        role: artifactory
+        component: artifactory
+        release: artifactory
+      annotations:
+        checksum/binarystore: 75e1c3876ac5e146fe935806d3e6e5228f1ca5df8a115cd494006867ec28de13
+    spec:
+      serviceAccountName: artifactory-artifactory
+      terminationGracePeriodSeconds: 
+      securityContext:
+        runAsUser: 1030
+        fsGroup: 1030
+      initContainers:
+      - name: "remove-lost-found"
+        image: "alpine:3.8"
+        imagePullPolicy: IfNotPresent
+        command:
+        - 'sh'
+        - '-c'
+        - 'rm -rfv /var/opt/jfrog/artifactory/lost+found /var/opt/jfrog/artifactory/data/.lock'
+        volumeMounts:
+        - name: artifactory-volume
+          mountPath: "/var/opt/jfrog/artifactory"
+      - name: "wait-for-db"
+        image: "alpine:3.8"
+        command:
+        - 'sh'
+        - '-c'
+        - >
+          until nc -z -w 2 artifactory-postgresql 5432 && echo database ok; do
+            sleep 2;
+          done;
+      containers:
+      - name: artifactory
+        image: 'docker.bintray.io/jfrog/artifactory-oss:6.8.4'
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+        lifecycle:
+          postStart:
+            exec:
+              command:
+              - '/bin/sh'
+              - '-c'
+              - >
+        env:
+        - name: DB_TYPE
+          value: 'postgresql'
+        - name: DB_HOST
+          value: 'artifactory-postgresql'
+        - name: DB_PORT
+          value: '5432'
+        - name: DB_USER
+          value: "artifactory"
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: artifactory-postgresql
+              key: postgres-password
+        - name: ARTIFACTORY_MASTER_KEY
+          valueFrom:
+            secretKeyRef:
+              name: 'artifactory-artifactory'
+              key: master-key
+        - name: EXTRA_JAVA_OPTIONS
+          value: "
+            "
+        ports:
+        - containerPort: 8081
+        volumeMounts:
+        - name: artifactory-volume
+          mountPath: "/var/opt/jfrog/artifactory"
+        - name: binarystore-xml
+          mountPath: "/artifactory_extra_conf/binarystore.xml"
+          subPath: binarystore.xml
+        resources:
+          {}
+          
+      
+      volumes:
+      - name: binarystore-xml
+        configMap:
+          name: artifactory-artifactory-bs
+  volumeClaimTemplates:
+  - metadata:
+      name: artifactory-volume
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 20Gi

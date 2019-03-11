@@ -1,0 +1,17 @@
+---
+# Source: artifactory/templates/artifactory-binarystore.yaml
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: artifactory-artifactory-bs
+  labels:
+    app: artifactory
+    chart: artifactory-7.12.4
+    heritage: Tiller
+    release: artifactory
+data:
+  binarystore.xml: |-
+    <!-- File system replication -->
+    <config version="v1">
+        <chain template="file-system"/>
+    </config>

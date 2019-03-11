@@ -1,0 +1,19 @@
+---
+# Source: artifactory/charts/postgresql/templates/svc.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: artifactory-postgresql
+  labels:
+    app: artifactory-postgresql
+    chart: "postgresql-0.9.5"
+    release: "artifactory"
+    heritage: "Tiller"
+spec:
+  type: ClusterIP
+  ports:
+  - name: postgresql
+    port: 5432
+    targetPort: postgresql
+  selector:
+    app: artifactory-postgresql
